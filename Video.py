@@ -32,6 +32,9 @@ lock = threading.Lock()
 stop_event = threading.Event()
 
 def error_handling(errors, stop_event):
+    """
+    Обрабатывает ошибки открытия камеры, уведомляя пользователя и предлагая варианты действий.
+    """
     try:
         while not errors.empty() and not stop_event.is_set():
             index = errors.get()
@@ -51,33 +54,52 @@ def error_handling(errors, stop_event):
         logger.error(f'Непредвиденная ошибка в error_handling: {e}')
 
 
-def create_error_image():
+def create_error_image(text="ERROR", size=(200, 400), color=(0, 0, 255), thickness=2, font_scale=2):
+    """
+    Создает изображение с текстом об ошибке.
+    """
     try:
-        error_image = np.zeros((200, 400, 3), dtype=np.uint8)
-        cv2.putText(error_image, "ERROR", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 2, cv2.LINE_AA)
+        error_image = np.zeros((size[0], size[1], 3), dtype=np.uint8)
+        text_size, _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+        text_x = (size[1] - text_size[0]) // 2
+        text_y = (size[0] + text_size[1]) // 2
+        cv2.putText(error_image, text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness, cv2.LINE_AA)
         return error_image
     except Exception as e:
         logger.error(f'Непредвиденная ошибка в create_error_image: {e}')
+        return None
 
 def show_error(index, stop_event):
+    """
+    Показывает изображение об ошибке в отдельном потоке.
+    """
     try:
         error_image = create_error_image()
         while not stop_event.is_set():
             cv2.imshow(f"Camera {index + 1}", error_image)
             cv2.waitKey(1)
             position_window(f"Camera {index + 1}", index)
+
+        cv2.destroyWindow(f"Camera {index + 1}")
+
     except Exception as e:
         logger.error(f'Непредвиденная ошибка в show_error: {e}')
 
-def position_window(window_name, index):
+def position_window(window_name, index, num_windows_per_row=2):
+    """
+    Размещает окно с заданным именем на экране в виде сетки.
+    """
     try:
-        x = (index % 2) * WINDOW_WIDTH
-        y = (index // 2) * WINDOW_HEIGHT
+        x = (index % num_windows_per_row) * WINDOW_WIDTH
+        y = (index // num_windows_per_row) * WINDOW_HEIGHT
         cv2.moveWindow(window_name, x, y)
     except Exception as e:
-        logger.error(f'Непредвиденная ошибка в position_window: {e}')
+        logger.exception(f'Ошибка при позиционировании окна "{window_name}" с индексом {index}: {e}')
 
 def capture_and_save(cap, folder_name, fps, index, start_count, stop_event):
+    """
+    Захватывает и сохраняет кадры с камеры в JPG-файлы, отображая видеопоток с подсчетом и отображением реального FPS, пока не получит сигнал остановки.
+    """
     try:
         os.makedirs(folder_name, exist_ok=True)
         frame_count = 0
@@ -107,7 +129,9 @@ def capture_and_save(cap, folder_name, fps, index, start_count, stop_event):
         logger.error(f'Непредвиденная ошибка в capture_and_save: {e}')
 
 def connection(ip, fps, folder_name, width, height, index, start_count, timeout = 10):
-    """Пытается подключиться к камере, обрабатывает успех/неудачу."""
+    """
+    Пытается подключиться к камере, обрабатывает успех/неудачу.
+    """
     try:
         frames_received = False
         cap = None
@@ -154,6 +178,9 @@ def connection(ip, fps, folder_name, width, height, index, start_count, timeout 
         logger.error(f'Непредвиденная ошибка в connection: {e}')
 
 def getting_settings():
+    """
+    Загружает настройки из файла settings.txt или запрашивает их у пользователя
+    """
     try:
         settings = []
         if os.path.exists('settings.txt'):
@@ -214,6 +241,9 @@ def getting_settings():
         logger.error(f'Непредвиденная ошибка в getting_settings: {e}')
 
 def start_counter():
+    """
+    Считывает счетчик из файла start_count.txt
+    """
     try:
         try:
             with open('start_count.txt', 'r') as f:
