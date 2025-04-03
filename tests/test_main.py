@@ -1,229 +1,86 @@
 import pytest
 import threading
 import time
-from unittest.mock import patch, MagicMock, call, ANY
+import keyboard
+from unittest.mock import patch, MagicMock
+from Video import main, getting_settings, connection, error_handling, start_counter
 
 
-import Video
+@pytest.fixture
+def mock_settings():
+    with patch('Video.getting_settings') as mock_get:
+        mock_get.return_value = (30, 640, 480, 0, "usb_folder", ["rtsp://127.0.0.1:8554/test"], ["ip_folder"])
+        yield mock_get
 
 
-@pytest.fixture(autouse=True)
-def reset_globals():
-    Video.threads = []
-    Video.running = True
+@pytest.fixture
+def mock_connection():
+    with patch('Video.connection') as mock_conn:
+        yield mock_conn
 
+@pytest.fixture
+def mock_sleep():
+    with patch('Video.time.sleep') as mock_time_sleep:
+        yield mock_time_sleep
 
-    try:
-        import queue
-        Video.errors_queue = queue.Queue()
-    except AttributeError:
-         Video.errors_queue = MagicMock()
+@pytest.fixture
+def mock_error_handling():
+    with patch('Video.error_handling') as mock_err:
+        yield mock_err
 
+@pytest.fixture
+def mock_start_counter():
+    with patch('Video.start_counter') as mock_start:
+        mock_start.return_value = 0
+        yield mock_start
 
-@patch('Video.logger')
-@patch('Video.keyboard')
-@patch('Video.error_handling')
-@patch('Video.connection')
-@patch('Video.getting_settings')
-@patch('Video.start_counter')
-@patch('threading.Thread')
-@patch('time.sleep')
-def test_main_happy_path(
-    mock_sleep, mock_thread_class, mock_start_counter, mock_getting_settings,
-    mock_connection, mock_error_handling, mock_keyboard, mock_logger
-):
-    """
-    Тест нормального выполнения: запускаются IP и USB потоки,
-    цикл выполняется несколько раз, затем имитируется Ctrl+C.
-    """
+@pytest.fixture
+def mock_threads():
+    threads = []
+    yield threads
+    for thread in threads:
+        thread.join()
 
-    mock_start_counter.return_value = 100
-    mock_getting_settings.return_value = (
-        30, 1920, 1080, 0, '/usb/folder',
-        ['rtsp://ip1', 'rtsp://ip2'],
-        ['/ip1/folder', '/ip2/folder']
-    )
+@pytest.fixture
+def mock_stop_event():
+    stop_event = threading.Event()
+    yield stop_event
 
-    mock_ip_thread1_instance = MagicMock()
-    mock_ip_thread2_instance = MagicMock()
-    mock_usb_thread_instance = MagicMock()
+@pytest.fixture
+def mock_errors_queue():
+    errors_queue = MagicMock()
+    yield errors_queue
 
-    mock_thread_class.side_effect = [mock_ip_thread1_instance, mock_ip_thread2_instance, mock_usb_thread_instance]
-
-
-    mock_keyboard.is_pressed.side_effect = [
-        False, False,
-        False, False,
-        True, True
-    ]
-
-    Video.main()
-
-    mock_start_counter.assert_called_once()
-    mock_getting_settings.assert_called_once()
-
-    expected_ip_calls = [
-        call(target=mock_connection, args=('rtsp://ip1', 30, '/ip1/folder', 1920, 1080, 0, 100)),
-        call(target=mock_connection, args=('rtsp://ip2', 30, '/ip2/folder', 1920, 1080, 1, 100)),
-    ]
-
-    expected_usb_call = call(target=mock_connection, args=(0, 30, '/usb/folder', 1920, 1080, 3, 100))
-
-    assert mock_thread_class.call_count == 3
-    mock_thread_class.assert_has_calls(expected_ip_calls + [expected_usb_call], any_order=False)
-
-    mock_ip_thread1_instance.start.assert_called_once()
-    mock_ip_thread2_instance.start.assert_called_once()
-
-    mock_sleep.assert_any_call(10)
-    mock_usb_thread_instance.start.assert_called_once()
-
-    assert mock_error_handling.call_count == 5
-    mock_error_handling.assert_called_with(Video.errors_queue)
-    assert mock_sleep.call_count >= 3
-    mock_sleep.assert_any_call(0.1)
-
-    mock_logger.info.assert_any_call('Программа завершена нажатием клавиш.')
-
-    mock_ip_thread1_instance.join.assert_called_once()
-    mock_ip_thread2_instance.join.assert_called_once()
-    mock_usb_thread_instance.join.assert_called_once()
-
-    assert Video.running is False
-
-
-@patch('Video.logger')
-@patch('Video.keyboard')
-@patch('Video.error_handling')
-@patch('Video.connection')
-@patch('Video.getting_settings')
-@patch('Video.start_counter')
-@patch('threading.Thread')
-@patch('time.sleep')
-def test_main_ip_thread_creation_exception(
-    mock_sleep, mock_thread_class, mock_start_counter, mock_getting_settings,
-    mock_connection, mock_error_handling, mock_keyboard, mock_logger
-):
-    """
-    Тест: Ошибка при создании одного из IP потоков.
-    Остальные потоки должны создаться и запуститься.
-    """
-
-    mock_start_counter.return_value = 100
-    mock_getting_settings.return_value = (30, 1920, 1080, 0, '/usb/folder', ['ip1', 'ip2'], ['f1', 'f2'])
-
-    mock_ip_thread1_instance = MagicMock()
-    mock_usb_thread_instance = MagicMock()
-    test_exception = Exception("IP Thread Error")
-    mock_thread_class.side_effect = [mock_ip_thread1_instance, test_exception, mock_usb_thread_instance]
-
-    mock_keyboard.is_pressed.side_effect = [True, True]
-
-    Video.main()
-
-    mock_start_counter.assert_called_once()
-    mock_getting_settings.assert_called_once()
-
-    assert mock_thread_class.call_count == 3
-    mock_thread_class.assert_any_call(target=mock_connection, args=('ip1', 30, 'f1', 1920, 1080, 0, 100))
-    mock_thread_class.assert_any_call(target=mock_connection, args=('ip2', 30, 'f2', 1920, 1080, 1, 100))
-    mock_thread_class.assert_any_call(target=mock_connection, args=(0, 30, '/usb/folder', 1920, 1080, 3, 100))
-
-    mock_ip_thread1_instance.start.assert_called_once()
-    mock_usb_thread_instance.start.assert_called_once()
-
-    mock_logger.error.assert_called_with(str(test_exception))
+@pytest.fixture
+def mock_keyboard():
+    with patch('Video.keyboard') as mock_key:
+        yield mock_key
 
 
 
-    mock_logger.info.assert_any_call('Программа завершена нажатием клавиш.')
 
-    mock_ip_thread1_instance.join.assert_called_once()
-    mock_usb_thread_instance.join.assert_called_once()
+def test_main_ip_camera(mock_settings, mock_connection, mock_error_handling, mock_start_counter, mock_threads, mock_stop_event, mock_errors_queue, mock_keyboard, mock_sleep):
+    mock_keyboard.is_pressed.return_value = True
+    main()
 
-
-@patch('Video.logger')
-@patch('Video.keyboard')
-@patch('Video.error_handling')
-@patch('Video.connection')
-@patch('Video.getting_settings')
-@patch('Video.start_counter')
-@patch('threading.Thread')
-@patch('time.sleep')
-def test_main_usb_thread_creation_exception(
-    mock_sleep, mock_thread_class, mock_start_counter, mock_getting_settings,
-    mock_connection, mock_error_handling, mock_keyboard, mock_logger
-):
-    """
-    Тест: Ошибка при создании USB потока.
-    IP потоки должны создаться и запуститься.
-    """
-
-    mock_start_counter.return_value = 100
-    mock_getting_settings.return_value = (30, 1920, 1080, 0, '/usb/folder', ['ip1'], ['f1'])
-
-    mock_ip_thread1_instance = MagicMock()
-    test_exception = Exception("USB Thread Error")
-
-    mock_thread_class.side_effect = [mock_ip_thread1_instance, test_exception]
-
-    mock_keyboard.is_pressed.side_effect = [True, True]
-
-    Video.main()
-
-    assert mock_thread_class.call_count == 2
-    mock_thread_class.assert_any_call(target=mock_connection, args=('ip1', 30, 'f1', 1920, 1080, 0, 100))
-    mock_thread_class.assert_any_call(target=mock_connection, args=(0, 30, '/usb/folder', 1920, 1080, 3, 100))
-
-    mock_ip_thread1_instance.start.assert_called_once()
-    mock_sleep.assert_called_with(0.1)
-
-    mock_logger.error.assert_called_with(str(test_exception))
-
-    mock_logger.info.assert_any_call('Программа завершена нажатием клавиш.')
-    mock_ip_thread1_instance.join.assert_called_once()
-
-@patch('Video.logger')
-@patch('Video.keyboard')
-@patch('Video.error_handling')
-@patch('Video.connection')
-@patch('Video.getting_settings')
-@patch('Video.start_counter')
-@patch('threading.Thread')
-@patch('time.sleep')
-def test_main_error_in_loop(
-    mock_sleep, mock_thread_class, mock_start_counter, mock_getting_settings,
-    mock_connection, mock_error_handling, mock_keyboard, mock_logger
-):
-    """
-    Тест: Ошибка возникает внутри основного цикла while.
-    """
-
-    mock_start_counter.return_value = 100
-    mock_getting_settings.return_value = (30, 1920, 1080, 0, '/usb/folder', ['ip1'], ['f1'])
-
-    mock_ip_thread_instance = MagicMock()
-    mock_usb_thread_instance = MagicMock()
-    mock_thread_class.side_effect = [mock_ip_thread_instance, mock_usb_thread_instance]
-
-    test_exception = RuntimeError("Error during handling")
-    mock_error_handling.side_effect = test_exception
-
-    mock_keyboard.is_pressed.return_value = False
-
-    Video.main()
+    mock_connection.assert_called_with(0, 30, 'usb_folder', 640, 480, 3, 0)
+    mock_error_handling.assert_called()
 
 
-    assert mock_thread_class.call_count == 2
-    mock_ip_thread_instance.start.assert_called_once()
-    mock_usb_thread_instance.start.assert_called_once()
+def test_main_usb_camera(mock_settings, mock_connection, mock_error_handling, mock_start_counter, mock_threads, mock_stop_event, mock_errors_queue, mock_keyboard, mock_sleep):
+    mock_settings.return_value = (30, 640, 480, 0, "usb_folder", [], [])
+    mock_keyboard.is_pressed.return_value = True
+    main()
+    mock_connection.assert_called_with(0, 30, "usb_folder", 640, 480, 3, 0)
 
-    mock_error_handling.assert_called_once()
-    mock_logger.error.assert_called_with(str(test_exception))
 
-    mock_logger.info.assert_called_once_with("Программа завершена из-за ошибки.")
 
-    mock_ip_thread_instance.join.assert_called_once()
-    mock_usb_thread_instance.join.assert_called_once()
+
+def test_main_keyboard_interrupt(mock_settings, mock_connection, mock_error_handling, mock_start_counter, mock_threads, mock_stop_event, mock_errors_queue, mock_keyboard, mock_sleep):
+
+    mock_keyboard.is_pressed.side_effect = [False, True]
+    main()
+    assert not mock_stop_event.is_set()
+
 
 

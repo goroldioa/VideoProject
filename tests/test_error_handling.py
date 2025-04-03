@@ -1,102 +1,69 @@
 import pytest
 import queue
 import threading
-from unittest.mock import MagicMock, call
+import logging
+from unittest.mock import Mock, patch
 
-import Video
+from Video import error_handling
 
-@pytest.fixture(autouse=True)
-def setup_global_state():
-    """Сбрасывает глобальное состояние перед каждым тестом."""
-    Video.running = True
-    Video.threads = []
-    yield
-    Video.threads = []
-    Video.running = True
-
-def test_error_handling_empty_queue_new(mocker):
-    """
-    Тест: Очередь ошибок пуста.
-    Ожидание: Ничего не происходит.
-    """
-    errors_queue = queue.Queue()
-    mock_msgbox = mocker.patch('Video.messagebox.askyesno')
-    mock_logger = mocker.patch('Video.logger.error')
-    mock_thread_class = mocker.patch('Video.threading.Thread')
-
-    print("\nDEBUG: --- Starting test_error_handling_empty_queue_new ---")
-    Video.error_handling(errors_queue)
-    print("DEBUG: --- Finished error_handling call ---")
-
-    assert errors_queue.empty()
-    mock_msgbox.assert_not_called()
-    mock_logger.assert_not_called()
-    mock_thread_class.assert_not_called()
-    assert Video.running is True
-    assert len(Video.threads) == 0
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
-def test_error_handling_user_stops_no_thread_new(mocker):
-    """
-    Тест: Ошибка есть, пользователь нажимает "Нет".
-    Ожидание: running=False, ошибка логируется, ПОТОК НЕ СОЗДАЕТСЯ.
-    """
-    test_index = 0
-    errors_queue = queue.Queue()
-    errors_queue.put(test_index)
+@pytest.fixture
+def errors_queue():
+    return queue.Queue()
 
-    mock_msgbox = mocker.patch('Video.messagebox.askyesno', return_value=False)
-    mock_logger = mocker.patch('Video.logger.error')
-    mock_thread_class = mocker.patch('Video.threading.Thread')
 
-    expected_msgbox_title = "Ошибка камеры"
-    expected_msgbox_text = f"Ошибка: Не удалось открыть камеру {test_index + 1}\nПродолжить выполнение программы?"
-    expected_log_message = f"Ошибка: Не удалось открыть камеру {test_index + 1}"
+@pytest.fixture
+def stop_event():
+    return threading.Event()
 
-    print("\nDEBUG: --- Starting test_error_handling_user_stops_no_thread_new ---")
-    initial_threads_len = len(Video.threads)
-    Video.running = True
 
-    Video.error_handling(errors_queue)
-    print("DEBUG: --- Finished error_handling call ---")
+@patch('Video.messagebox.askyesno')
+@patch('Video.threading.Thread')
+@patch('Video.show_error')
+def test_error_handling_no_errors(mock_show_error, mock_thread, mock_askyesno, errors_queue, stop_event):
+    """Тест: Очередь ошибок пуста."""
+    error_handling(errors_queue, stop_event)
+    mock_askyesno.assert_not_called()
+    mock_thread.assert_not_called()
+    mock_show_error.assert_not_called()
 
-    assert errors_queue.empty()
-    mock_msgbox.assert_called_once_with(expected_msgbox_title, expected_msgbox_text)
-    mock_logger.assert_called_once_with(expected_log_message)
-    assert Video.running is False
-    mock_thread_class.assert_not_called()
-    assert len(Video.threads) == initial_threads_len
 
-def test_error_handling_user_continues_starts_thread_new(mocker):
-    """
-    Тест: Ошибка есть, пользователь нажимает "Да".
-    Ожидание: running=True, ошибка логируется, ПОТОК СОЗДАЕТСЯ И ЗАПУСКАЕТСЯ.
-    """
-    test_index = 2
-    errors_queue = queue.Queue()
-    errors_queue.put(test_index)
+@patch('Video.messagebox.askyesno', return_value=True)
+@patch('Video.threading.Thread')
+@patch('Video.show_error')
+def test_error_handling_continue(mock_show_error, mock_thread, mock_askyesno, errors_queue, stop_event):
+    """Тест: Одна ошибка, пользователь продолжает."""
+    errors_queue.put(0)
+    error_handling(errors_queue, stop_event)
+    mock_askyesno.assert_called_once_with("Ошибка камеры", "Ошибка: Не удалось открыть камеру 1\nПродолжить выполнение программы?")
+    mock_thread.assert_called_once_with(target=mock_show_error, args=(0, stop_event,))
+    mock_thread.return_value.start.assert_called_once()
+    assert not stop_event.is_set()
 
-    mock_msgbox = mocker.patch('Video.messagebox.askyesno', return_value=True)
-    mock_logger = mocker.patch('Video.logger.error')
 
-    mock_thread_instance = MagicMock(spec=threading.Thread)
-    mock_thread_class = mocker.patch('Video.threading.Thread', return_value=mock_thread_instance)
+@patch('Video.messagebox.askyesno', return_value=False)
+@patch('Video.threading.Thread')
+@patch('Video.show_error')
+def test_error_handling_stop(mock_show_error, mock_thread, mock_askyesno, errors_queue, stop_event):
+    """Тест: Одна ошибка, пользователь останавливает."""
+    errors_queue.put(1)
+    error_handling(errors_queue, stop_event)
+    mock_askyesno.assert_called_once_with("Ошибка камеры", "Ошибка: Не удалось открыть камеру 2\nПродолжить выполнение программы?")
+    mock_thread.assert_not_called()
+    mock_show_error.assert_not_called()
+    assert stop_event.is_set()
 
-    expected_msgbox_title = "Ошибка камеры"
-    expected_msgbox_text = f"Ошибка: Не удалось открыть камеру {test_index + 1}\nПродолжить выполнение программы?"
-    expected_log_message = f"Ошибка: Не удалось открыть камеру {test_index + 1}"
 
-    print("\nDEBUG: --- Starting test_error_handling_user_continues_starts_thread_new ---")
-    initial_threads_len = len(Video.threads)
-
-    Video.error_handling(errors_queue)
-    print("DEBUG: --- Finished error_handling call ---")
-
-    assert errors_queue.empty()
-    mock_msgbox.assert_called_once_with(expected_msgbox_title, expected_msgbox_text)
-    mock_logger.assert_called_once_with(expected_log_message)
-    assert Video.running is True
-    mock_thread_class.assert_called_once_with(target=Video.show_error, args=(test_index,))
-    assert len(Video.threads) == initial_threads_len + 1
-    assert Video.threads[0] is mock_thread_instance
-    mock_thread_instance.start.assert_called_once()
+@patch('Video.messagebox.askyesno', side_effect=Exception("Test Exception"))
+@patch('Video.threading.Thread')
+@patch('Video.show_error')
+def test_error_handling_exception(mock_show_error, mock_thread, mock_askyesno, errors_queue, stop_event, caplog):
+    """Тест: Обработка исключения в messagebox.askyesno."""
+    errors_queue.put(0)
+    error_handling(errors_queue, stop_event)
+    assert "Непредвиденная ошибка в error_handling: Test Exception" in caplog.text
+    mock_thread.assert_not_called()
+    mock_show_error.assert_not_called()
