@@ -9,6 +9,7 @@ import keyboard
 import logging
 import platform
 import numpy as np
+import configparser
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -179,66 +180,65 @@ def connection(ip, fps, folder_name, width, height, index, start_count, timeout 
 
 def getting_settings():
     """
-    Загружает настройки из файла settings.txt или запрашивает их у пользователя
+    Загружает настройки из файла settings.ini или запрашивает их у пользователя.
     """
-    try:
-        settings = []
-        if os.path.exists('settings.txt'):
-            try:
-                with open('settings.txt', 'r') as file:
-                    for line in file:
-                        settings.append(line)
-                change_settings = messagebox.askyesno("Настройки",
-                                                  f'Вы хотите изменить настройки? \n'
-                                                  f'Сейчас заданы: \n'
-                                                  f'FPS: {settings[0]}'
-                                                  f'Size: {settings[1][:-1]} x {settings[2]}'
-                                                  f'USB Index: {settings[3]}'
-                                                  f'Папка для USB камеры: {settings[4]}'
-                                                  f'IP 1: {settings[5]}'
-                                                  f'Папка для 1 IP камеры: {settings[6]}'
-                                                  f'IP 2: {settings[7]}'
-                                                  f'Папка для 2 IP камеры: {settings[8]}'
-                                                  f'IP 3: {settings[9]}'
-                                                  f'Папка для 3 IP камеры: {settings[10]}')
-            except IndexError:
-                change_settings = True
-        else:
-            change_settings = True
+    config = configparser.ConfigParser()
+    config_file = 'settings.ini'
 
-        if change_settings:
-            with open('settings.txt', 'w') as f:
-                user_fps = simpledialog.askinteger("FPS", "Введите количество кадров в секунду(1-60):")
-                f.write(str(user_fps) + '\n')
-                user_width = simpledialog.askinteger("WIDTH", "Введите ширину кадра(320-2560):")
-                f.write(str(user_width) + '\n')
-                user_height = simpledialog.askinteger("HEIGHT", "Введите высоту кадра(200-2048):")
-                f.write(str(user_height) + '\n')
-                user_usb_index = simpledialog.askinteger('USB INDEX', 'Введите индекс usb камеры:')
-                f.write(str(user_usb_index) + '\n')
-                usb_folder = filedialog.askdirectory(title="Выберите папку для USB-камеры")
-                f.write(f'{str(usb_folder)} \n')
-                ip_camera_addresses = []
-                ip_camera_folders = []
-                for i in range(1,4):
-                    user_ip= simpledialog.askstring(f'IP {i}', 'Введите ip камеры в формате: \n'
-                                                             '"rtsp://user1:pass1@192.168.1.101/"')
-                    f.write(user_ip + '\n')
-                    ip_folder = filedialog.askdirectory(title=f"Выберите папку для {i} IP-камеры")
-                    f.write(f'{str(ip_folder)} \n')
-                    ip_camera_addresses.append(user_ip)
-                    ip_camera_folders.append(ip_folder)
-        else:
-            user_fps = int(settings[0][:-1])
-            user_width = int(settings[1][:-1])
-            user_height = int(settings[2][:-1])
-            user_usb_index = int(settings[3][:-1])
-            usb_folder = settings[4][:-1]
-            ip_camera_addresses = [settings[5][:-1], settings[7][:-1], settings[9][:-1]]
-            ip_camera_folders = [settings[6][:-2], settings[8][:-2], settings[10][:-2]]
-        return user_fps, user_width, user_height, user_usb_index, usb_folder, ip_camera_addresses, ip_camera_folders
-    except Exception as e:
-        logger.error(f'Непредвиденная ошибка в getting_settings: {e}')
+    if os.path.exists(config_file):
+        config.read(config_file)
+        try:
+            config.getint('General', 'fps')
+            config.getint('General', 'width')
+            config.getint('General', 'height')
+            config.getint('USB', 'index')
+            config.get('USB', 'folder')
+            config.get('IPCamera1', 'address')
+            config.get('IPCamera1', 'folder')
+            config.get('IPCamera2', 'address')
+            config.get('IPCamera2', 'folder')
+            config.get('IPCamera3', 'address')
+            config.get('IPCamera3', 'folder')
+
+            change_settings = messagebox.askyesno("Настройки",
+                                                  "Изменить текущие настройки?\n" +
+                                                  "\n".join([f"{key}: {value}" for section in config.sections() for key, value in config.items(section)]))
+
+
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            change_settings = True
+    else:
+        change_settings = True
+
+
+    if change_settings:
+        config['General'] = {}
+        config['General']['fps'] = str(simpledialog.askinteger("FPS", "Введите количество кадров в секунду (1-60):", minvalue=1, maxvalue=60))
+        config['General']['width'] = str(simpledialog.askinteger("Width", "Введите ширину кадра (320-2560):", minvalue=320, maxvalue=2560))
+        config['General']['height'] = str(simpledialog.askinteger("Height", "Введите высоту кадра (200-2048):", minvalue=200, maxvalue=2048))
+
+        config['USB'] = {}
+        config['USB']['index'] = str(simpledialog.askinteger("USB Index", "Введите индекс USB камеры:"))
+        config['USB']['folder'] = filedialog.askdirectory(title="Выберите папку для USB-камеры")
+
+        for i in range(1, 4):
+            section = f'IPCamera{i}'
+            config[section] = {}
+            config[section]['address'] = simpledialog.askstring(f'IP {i}', 'Введите адрес IP камеры в формате:\n "rtsp://user1:pass1@192.168.1.101/"')
+            config[section]['folder'] = filedialog.askdirectory(title=f"Выберите папку для {i} IP-камеры")
+
+        with open(config_file, 'w') as f:
+            config.write(f)
+
+    user_fps = config.getint('General', 'fps')
+    user_width = config.getint('General', 'width')
+    user_height = config.getint('General', 'height')
+    user_usb_index = config.getint('USB', 'index')
+    usb_folder = config.get('USB', 'folder')
+    ip_camera_addresses = [config.get(f'IPCamera{i}', 'address') for i in range(1, 4)]
+    ip_camera_folders = [config.get(f'IPCamera{i}', 'folder') for i in range(1, 4)]
+
+    return user_fps, user_width, user_height, user_usb_index, usb_folder, ip_camera_addresses, ip_camera_folders
 
 def start_counter():
     """
