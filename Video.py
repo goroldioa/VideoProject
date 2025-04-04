@@ -33,8 +33,9 @@ root.withdraw() # Скрываем главное окно (withdraw)
 threads = [] # Список для хранения потоков
 lock = threading.Lock() # Создаем объект блокировки для управления доступом к общим ресурсам
 stop_event = threading.Event() # Создаем событие для управления остановкой потоков
+start_event = threading.Event() # Создаем событие для управления старта потоков
 
-def error_handling(errors: queue, stop_event: threading.Event()) -> None:
+def error_handling(errors: queue.Queue(), stop_event: threading.Event()) -> None:
     """
     Обрабатывает ошибки открытия камеры, уведомляя пользователя и предлагая варианты действий.
 
@@ -194,7 +195,8 @@ def capture_and_save(cap: cv2.VideoCapture(), folder_name: str, fps: int, index:
         logger.error(f'Непредвиденная ошибка в capture_and_save: {e}')
 
 
-def connection(ip: str | int, fps: int, folder_name: str, width: int, height: int, index: int, start_count: int, timeout: int = 10) -> None:
+def connection(ip: str | int, fps: int, folder_name: str, width: int, height: int, index: int, start_count: int, timeout: int = 10,
+               lock: threading.Lock() = lock, errors_queue: queue.Queue() = errors_queue, stop_event: threading.Event() = stop_event) -> None:
     """
     Пытается подключиться к камере, обрабатывает успех/неудачу.
 
@@ -222,16 +224,8 @@ def connection(ip: str | int, fps: int, folder_name: str, width: int, height: in
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Устанавливаем размер буфера
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)  # Устанавливаем ширину кадра
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)  # Устанавливаем высоту кадра
-
-            start_time = time.time()  # Запоминаем время начала попытки подключения
-
-            # Цикл ожидания подключения к камере
-            while time.time() - start_time < timeout:
-                if cap.grab():  # Пытаемся захватить кадр
-                    frames_received = True  # Успешный захват, обновляем флаг
-                    break  # Выходим из цикла
-                else:
-                    time.sleep(0.01)  # Ждем 10 миллисекунд перед следующей попыткой
+            if cap.grab():  # Пытаемся захватить кадр
+                frames_received = True  # Успешный захват, обновляем флаг
 
             if not frames_received:  # Если кадры не были получены
                 with lock:
@@ -329,6 +323,7 @@ def getting_settings() -> tuple[int, int, int, int, str, list[str], list[str]] |
 
         # Флаг, определяющий, нужно ли установить настройки
         set_the_settings = False
+        change_settings = False
 
         # Проверяем существует ли файл конфигурации
         if os.path.exists(config_file):
@@ -550,7 +545,6 @@ def main() -> None:
             usb_index = 3  # Индекс USB-устройства
             usb_thread = threading.Thread(target=connection, args=(user_usb_index, user_fps, usb_folder, user_width, user_height, usb_index, start_count))
             threads.append(usb_thread)  # Добавляем поток в список потоков
-            time.sleep(10)  # Задержка перед запуском
             usb_thread.start()  # Запускаем поток для USB
 
         except Exception as e:
