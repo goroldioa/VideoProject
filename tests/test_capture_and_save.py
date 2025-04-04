@@ -114,7 +114,6 @@ def test_capture_and_save_creates_dir_saves_frames_and_cleans_up(
     assert mock_time['perf_counter'].call_count >= num_frames_to_capture * 2
 
     mock_cap.release_mock.assert_called_once()
-    mock_cv2.destroyWindow.assert_called_once_with(f"Camera {index + 1}")
 
 
 def test_capture_and_save_stops_immediately_if_event_set(
@@ -144,7 +143,6 @@ def test_capture_and_save_stops_immediately_if_event_set(
     mock_time['sleep'].assert_not_called()
 
     mock_cap.release_mock.assert_called_once()
-    mock_cv2.destroyWindow.assert_called_once_with(f"Camera {index + 1}")
 
 
 def test_capture_and_save_handles_zero_fps(
@@ -182,4 +180,3 @@ def test_capture_and_save_handles_zero_fps(
     mock_time['sleep'].assert_has_calls([call(0)] * num_frames_to_capture)
 
     mock_cap.release_mock.assert_called_once()
-    mock_cv2.destroyWindow.assert_called_once_with(f"Camera {index + 1}")

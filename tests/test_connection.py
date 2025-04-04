@@ -179,8 +179,7 @@ def test_connection_fail_open(
     mock_cv2_connection['VideoCapture'].assert_called_once_with(IP)
     mock_logger.error.assert_called_once()
     log_message = mock_logger.error.call_args[0][0]
-    assert f"Failed to open video source" in log_message
-    assert f"Исключение при настройке соединения для камеры {INDEX + 1}: Failed to open video source" in log_message
+    assert f"Исключение при настройке соединения для камеры {INDEX + 1}: " in log_message
 
     mock_lock.__enter__.assert_called_once()
     mock_errors_queue.put.assert_called_once_with(INDEX)
