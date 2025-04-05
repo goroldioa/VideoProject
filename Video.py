@@ -233,7 +233,8 @@ def connection(ip: str | int, fps: int, folder_name: str, width: int, height: in
             else:
                 success_message = f"Успешное подключение к камере {index + 1}"  # Сообщение об успешном подключении
                 logger.info(success_message)  # Логируем сообщение
-                capture_and_save(cap, folder_name, fps, index, start_count, stop_event)  # Запускаем захват и сохранение кадров
+                capture_and_save(cap, folder_name, fps, index, start_count, stop_event)  # Запускаем захват и сохранение
+                # кадров
 
         except Exception as e:
             # Логируем ошибку, возникшую при настройке соединения
@@ -252,7 +253,7 @@ def connection(ip: str | int, fps: int, folder_name: str, width: int, height: in
         logger.error(f'Непредвиденная ошибка в connection: {e}')
 
 
-def ask_multiple_choice_question(question: str, choices: List[str]) -> List[str] | None:
+def ask_multiple_choice_question(question: str, choices: List[str], top: tk, vars: list, selected_choices: List[str] = []) -> List[str] | None:
     """
     Создает окно с вопросом и выбором нескольких вариантов ответа.
 
@@ -262,15 +263,11 @@ def ask_multiple_choice_question(question: str, choices: List[str]) -> List[str]
     """
     try:
         # Создаем новое окно для вопроса
-        top = tk.Toplevel()
-        top.title("Вопрос")  # Устанавливаем заголовок окна
+        top.title("Настройки")  # Устанавливаем заголовок окна
 
         # Создаем метку с заданным вопросом
         label = ttk.Label(top, text=question, wraplength=300)
         label.pack(pady=10)  # Добавляем отступы
-
-        selected_choices = []  # Список для хранения выбранных вариантов
-        vars = []  # Список для хранения переменных состояния чекбоксов
 
         # Создаем чекбоксы для каждого варианта ответа
         for choice in choices:
@@ -307,7 +304,6 @@ def ask_multiple_choice_question(question: str, choices: List[str]) -> List[str]
     except Exception as e:
         # Логируем ошибку, если произошла непредвиденная ошибка
         logger.error(f'Непредвиденная ошибка в ask_multiple_choice_question: {e}')
-
 
 def getting_settings() -> tuple[int, int, int, int, str, list[str], list[str]] | None:
     """
@@ -422,9 +418,10 @@ def getting_settings() -> tuple[int, int, int, int, str, list[str], list[str]] |
                 "IP_ADDRESS_3",
                 "IP_FOLDER_3"
             ]
-
+            top = tk.Toplevel()
+            vars = []
             # Вызываем функцию для выбора одного или нескольких вариантов изменений
-            selected = ask_multiple_choice_question("Выберите один или несколько вариантов:", choices)
+            selected = ask_multiple_choice_question("Выберите один или несколько вариантов:", choices, top, vars)
 
             # Проверяем выборы пользователя и запрашиваем новые значения, если необходимо
             if "FPS" in selected:
